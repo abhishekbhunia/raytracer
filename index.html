@@ -1,0 +1,444 @@
+
+
+<script src=lib1.js></script>
+ 
+<body bgcolor=white>
+<center>
+<td><canvas id='canvas1' width=600 height=600></canvas></td>
+</center>
+</body>
+
+<script id='my_vertex_shader' type='x-shader/x-vertex'>
+   attribute vec3 aPosition;
+   varying   vec3 vPosition;
+   void main() {
+      gl_Position = vec4(aPosition, 1.0);
+      vPosition = aPosition;
+   }
+</script>
+
+<script id='my_fragment_shader' type='x-shader/x-fragment'>
+	precision mediump float;
+   uniform float uTime;
+   uniform vec3 uCursor;
+   uniform bool uphong;
+   uniform bool ublinn;
+   varying vec3  vPosition;
+
+	vec4 permute1 ( vec4 x) { return mod ((34.0 * x + 1.0) * x , 289.0) ; }
+	
+	vec2 cellular ( vec2 P) {
+			const float K = 1.0/7.0;
+			const float K2 = 0.5/7.0;
+			const float jitter = 0.8; // jitter 1.0 makes F1 wrong more often
+			vec2 Pi = mod ( floor (P ) , 289.0) ;
+			vec2 Pf = fract ( P);
+			vec4 Pfx = Pf .x + vec4 ( -0.5 , -1.5 , -0.5 , -1.5) ;
+			vec4 Pfy = Pf .y + vec4 ( -0.5 , -0.5 , -1.5 , -1.5) ;
+			vec4 p = permute1 ( Pi .x + vec4 (0.0 , 1.0 , 0.0 , 1.0) );
+			p = permute1 (p + Pi .y + vec4 (0.0 , 0.0 , 1.0 , 1.0) );
+			vec4 ox = mod (p , 7.0) *K+ K2 ;
+			vec4 oy = mod ( floor (p *K) ,7.0) * K+ K2 ;
+			vec4 dx = Pfx + jitter * ox ;
+			vec4 dy = Pfy + jitter * oy ;
+			vec4 d = dx * dx + dy * dy ; // distances squared
+			//  pick only F1 for the return value
+			d. xy = min (d.xy , d. zw ) ;
+			d.x = min (d.x , d. y);
+			return vec2(d.x*abs(.8*sin(uTime))+d.x*abs(.81*cos(uTime)),d.x) ; // F1 duplicated , F2 not computed
+	}
+	
+   vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+	vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+	vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+	vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+	vec3 fade(vec3 t) { return t*t*t*(t*(t*6.0-15.0)+10.0); }
+
+	float noise(vec3 P) {
+	   vec3 i0 = mod289(floor(P)), i1 = mod289(i0 + vec3(1.0));
+	   vec3 f0 = fract(P), f1 = f0 - vec3(1.0), f = fade(f0);
+	   vec4 ix = vec4(i0.x, i1.x, i0.x, i1.x), iy = vec4(i0.yy, i1.yy);
+	   vec4 iz0 = i0.zzzz, iz1 = i1.zzzz;
+	   vec4 ixy = permute(permute(ix) + iy), ixy0 = permute(ixy + iz0), ixy1 = permute(ixy + iz1);
+	   vec4 gx0 = ixy0 * (1.0 / 7.0), gy0 = fract(floor(gx0) * (1.0 / 7.0)) - 0.5;
+	   vec4 gx1 = ixy1 * (1.0 / 7.0), gy1 = fract(floor(gx1) * (1.0 / 7.0)) - 0.5;
+	   gx0 = fract(gx0); gx1 = fract(gx1);
+	   vec4 gz0 = vec4(0.5) - abs(gx0) - abs(gy0), sz0 = step(gz0, vec4(0.0));
+	   vec4 gz1 = vec4(0.5) - abs(gx1) - abs(gy1), sz1 = step(gz1, vec4(0.0));
+	   gx0 -= sz0 * (step(0.0, gx0) - 0.5); gy0 -= sz0 * (step(0.0, gy0) - 0.5);
+	   gx1 -= sz1 * (step(0.0, gx1) - 0.5); gy1 -= sz1 * (step(0.0, gy1) - 0.5);
+	   vec3 g0 = vec3(gx0.x,gy0.x,gz0.x), g1 = vec3(gx0.y,gy0.y,gz0.y),
+	        g2 = vec3(gx0.z,gy0.z,gz0.z), g3 = vec3(gx0.w,gy0.w,gz0.w),
+	        g4 = vec3(gx1.x,gy1.x,gz1.x), g5 = vec3(gx1.y,gy1.y,gz1.y),
+	        g6 = vec3(gx1.z,gy1.z,gz1.z), g7 = vec3(gx1.w,gy1.w,gz1.w);
+	   vec4 norm0 = taylorInvSqrt(vec4(dot(g0,g0), dot(g2,g2), dot(g1,g1), dot(g3,g3)));
+	   vec4 norm1 = taylorInvSqrt(vec4(dot(g4,g4), dot(g6,g6), dot(g5,g5), dot(g7,g7)));
+	   g0 *= norm0.x; g2 *= norm0.y; g1 *= norm0.z; g3 *= norm0.w;
+	   g4 *= norm1.x; g6 *= norm1.y; g5 *= norm1.z; g7 *= norm1.w;
+	   vec4 nz = mix(vec4(dot(g0, vec3(f0.x, f0.y, f0.z)), dot(g1, vec3(f1.x, f0.y, f0.z)),
+	                      dot(g2, vec3(f0.x, f1.y, f0.z)), dot(g3, vec3(f1.x, f1.y, f0.z))),
+	                 vec4(dot(g4, vec3(f0.x, f0.y, f1.z)), dot(g5, vec3(f1.x, f0.y, f1.z)),
+	                      dot(g6, vec3(f0.x, f1.y, f1.z)), dot(g7, vec3(f1.x, f1.y, f1.z))), f.z);
+	   return 2.2 * mix(mix(nz.x,nz.z,f.y), mix(nz.y,nz.w,f.y), f.x);
+	}
+	
+   
+
+   float maxm=10000.;
+   float minm=10000.;
+   float focalLength=4.; 
+   //float specpower=400.;//specular power needed for Phong and Blinn Shading
+   vec3 eye=vec3(0.,0.,focalLength);
+   const int sphereCount=4;
+   const int lightCount=2;
+
+    struct material
+    {
+        vec3 ambient;//color of an object in shadow, i.e. color emiited under ambient light
+        vec3 diffuse;//essential color of the object emitted under pure white light
+        vec3 specular;         
+    };
+
+    struct sphere{
+    	vec3 sCenter;
+    	float sRadius;
+    	material sMat;
+    	float specpower;
+    	bool phong,tex;
+    };
+
+    struct light{
+    	vec3 lColor;
+    	vec3 lDir;
+    	vec3 loc;
+    };
+
+    sphere spheres[sphereCount];
+    light lights[lightCount];
+    struct optics{
+    	vec3 surfacePoint;
+    	vec3 surfacePointElevated;
+    	vec3 surfaceNormal;
+    	vec3 sufacePointToEye;
+    	vec3 invRay;
+    	vec3 sufacePointToLights[lightCount];
+    	material surfMat;
+    };
+    optics ob;
+    vec3 reflectedRays[lightCount];
+    
+   float phong(vec3 reflectedRay,int k){
+   	 
+   		float pwr;
+   		 for(int p=0;p<sphereCount;++p){
+   		 	if(p==k){
+   		 		pwr=spheres[p].specpower;
+   		 	}
+   		 }
+   		float temp=dot(ob.sufacePointToEye,normalize(reflectedRay));
+   		return pow(max(0.,temp),pwr);
+   		 
+   }
+   float blinn(int k){
+   	 
+   		vec3 halfv1=ob.sufacePointToEye+ob.sufacePointToLights[0];
+   		vec3 halfv2=ob.sufacePointToEye+ob.sufacePointToLights[1];
+   		float pwr;
+   		 for(int p=0;p<sphereCount;++p){
+   		 	if(p==k){
+   		 		pwr=spheres[p].specpower;
+   		 	}
+   		 }
+   		float temp1=dot(ob.surfaceNormal,normalize(halfv1));
+   		float temp2=dot(ob.surfaceNormal,normalize(halfv2));
+   		return (pow(max(0.,temp1),pwr)+pow(max(0.,temp2),pwr));
+   		 
+   }
+   vec3 turbulence(vec3 location, vec3 mixer)
+    {
+        float t = 0.0, p = 1.0;
+        for (int i = 0; i < 5; i++) {
+            
+             t += abs(noise(p * location));
+            p /= 2.0;
+        }
+        t *= 0.8;
+        float s = pow(0.5 + 0.5 * cos(7.0 * location.x + 10.0 * t + 0.5 * uTime), 0.1);
+        return vec3(s * mixer.r, s * s * mixer.g, s * s * s * mixer.b);
+    }
+    vec3 mixnoise(float x,vec3 mixer){
+      return vec3(x*mixer.x,x*mixer.y,x*mixer.z);
+    }
+    vec3 mixnoise2(float x,vec3 mixer){
+      x = pow(0.5 + 0.5 * cos(7.0 * x + 10.0 * x + 0.5 * uTime), 0.1);
+      float rx=x,ry=x*x,rz=x*x*x;
+
+      return vec3(rx*mixer.x,ry*mixer.y,rz*mixer.z);
+    }
+    float turb(vec3 point){
+         float x=0.;
+         float scale=1.5;
+         for(int i=0;i<5;++i){
+          point=point/scale;
+          x+=noise(point*scale);
+          scale=scale/2.;
+         }
+        return x;
+    }
+    float turb2(vec3 point){
+      float x=0.;
+         float scale=1.;
+         for(int i=0;i<5;++i){
+          point=point/scale;
+          x+=noise(point*scale);
+          scale=scale/2.;
+         }
+        return x;
+    }
+    float marble(vec3 point){
+        float xPeriod=5.,yPeriod=10.,noiseHeight=5.,noiseWidth=10.;
+        float xy=0.,sinval=0.;
+      
+        return (turb(vec3(sin(point.x+point.y),point.y,point.z)));
+    }
+   float raySphere(vec3 eye, vec3 ray, sphere S) {//ray=vPosition-eye
+
+      // YOU NEED TO COMPUTE t, BY SETTING UP AND THEN SOLVING A QUADRATIC EQUATION.
+      vec3 x=eye-S.sCenter;
+      float a=dot(ray,ray);//should be 1., as ray already normalized
+      float b=2.*dot(x,ray); 
+      float c=dot(x,x)-pow(S.sRadius,2.);
+      float D=b*b-4.*a*c;
+      if(D>=0.){
+      		float res=(-b-sqrt(D))/2.*a;
+      		if(res>=0.)
+      			return res;
+      		else
+      			return maxm;
+      		 
+      }
+	  else
+	  	return maxm;
+   }
+
+   // Diffusely shade a sphere.
+   //    point is the x,y,z position of the surface point.
+   //    sphere is the x,y,z,r definition of the sphere.
+   //    material is the r,g,b color of the sphere.
+   vec3 addReflection(vec3 reflectedRay,int sid,int refraction){
+   		if(sid==3&&refraction==0){         
+   			return vec3(0.,0.,0.);
+      }
+      else {
+        minm=maxm;
+        vec3 newcolor=vec3(0.,0.,0.);
+        //ob.sufacePointToEye=normalize(-1.*reflectedRay);
+        vec3 mirrorPoint,mirrorPointNormal;
+        material Mat;
+        for(int i=0;i<sphereCount;++i){
+          float t = raySphere(ob.surfacePointElevated, normalize(reflectedRay), spheres[i]);
+          if(t<minm){
+            minm=t;
+            mirrorPoint=ob.surfacePointElevated+minm*normalize(reflectedRay);
+            mirrorPointNormal=normalize(mirrorPoint-spheres[i].sCenter);
+            Mat=spheres[i].sMat;
+          }
+        }
+        if(minm!=maxm){
+          //vec3 eyeDirection = normalize(-1.0 * rayDirection);
+          for (int i = 0; i < lightCount; i++) {
+            bool miss=true;
+              if (dot(mirrorPointNormal,lights[i].lDir) >= 0.){
+                for(int j=0;j<sphereCount;++j) {
+                  if(raySphere(mirrorPoint+.001*mirrorPointNormal,lights[i].lDir,spheres[j])<maxm){
+                    miss=false;
+                    break;
+                  }                     
+                }
+              }
+              if(miss){
+                newcolor += lights[i].lColor * Mat.diffuse * max(0.0, dot(mirrorPointNormal, normalize(lights[i].loc-mirrorPoint)));
+                for(int y=0;y<sphereCount;++y){
+                  if(sid==y){
+                    if(spheres[y].phong)
+                      newcolor+=lights[i].lColor*Mat.specular*phong(reflectedRays[i],i);
+                    else
+                      newcolor+=lights[i].lColor*Mat.specular*blinn(i);
+                  }
+                }                    
+              } 
+          }
+        }
+        return newcolor;
+      }
+   		
+   }
+   vec3 shadeSphere(int sid) {
+       
+      // YOU NEED TO COMPUTE COLOR FOR A DIFFUSELY SHADED SPHERE.
+
+      // FOR THE AMBIENT COMPONENT OF THE DIFFUSE SHADING, YOU CAN
+      // USE A SIMPLE APPROXIMATION SUCH AS: ambient = material / 5.;
+    vec3 color;
+		for(int i=0;i<sphereCount;++i){
+			if(i==sid){
+				if(spheres[i].tex) {
+          if(sid!=0)
+					 color=mixnoise(turb(ob.surfacePoint), ob.surfMat.ambient);
+          else
+            color=mixnoise(turb2(ob.surfacePoint), ob.surfMat.ambient);
+        }
+				else{
+					color=ob.surfMat.ambient;
+
+        }
+			}
+		}
+		
+		//calculate reflected ray(s) 
+		for(int i=0;i<lightCount;++i){//will be normalized later
+			
+			reflectedRays[i]=2.*dot(ob.surfaceNormal,ob.sufacePointToLights[i])*ob.surfaceNormal
+						- ob.sufacePointToLights[i];
+		}
+		 
+		for(int i=0;i<lightCount;++i){
+			bool miss=true;
+			if(dot(ob.surfaceNormal,lights[i].lDir)>=0.){
+				
+				for(int j=0;j<sphereCount;++j){
+					if(raySphere(ob.surfacePointElevated,lights[i].lDir,spheres[j])<maxm){
+						miss=false;
+						break;
+					}
+				}				 
+			}
+			if(miss){//inverted ray has missed all sphere on its way to light source i			 
+				color+=lights[i].lColor*ob.surfMat.diffuse*max(0.,dot(ob.surfaceNormal,ob.sufacePointToLights[i]));//2nd parameter is key to gradual darkness
+				for(int y=0;y<sphereCount;++y){
+					if(sid==y){
+						if(spheres[y].phong)
+							color+=lights[i].lColor*ob.surfMat.specular*phong(reflectedRays[i],i);
+						else
+							color+=lights[i].lColor*ob.surfMat.specular*blinn(i);
+					}
+				}
+				/*if(sid==0||sid==2)//big and green-yellow
+					color+=lights[i].lColor*ob.surfMat.specular*phong(reflectedRays[i],i);	
+				else//ice-blue and dark blue
+					color+=lights[i].lColor*ob.surfMat.specular*blinn(i);	*/
+			}
+		}
+		//for(int i=0;i<lightCount;++i)
+		color+=addReflection(reflectedRays[0],sid,0);
+
+    //refraction  
+    //if(sid==0){//refraction will be applied to only the sphere movable by the mouse
+            vec3 yAxis = normalize(ob.surfaceNormal);
+            vec3 zAxis = normalize(cross(ob.surfaceNormal, ob.sufacePointToEye));
+            vec3 xAxis = cross(yAxis, zAxis);
+
+            float sin = 1.08 * sin(acos(dot(ob.sufacePointToEye, ob.surfaceNormal)));
+            float cos = sqrt(1.0 - pow(sin, 2.0));
+            vec3 refractionDirection = sin * xAxis + (-cos) * yAxis;
+            ob.surfacePoint-=.01*ob.surfaceNormal;
+            color += addReflection(refractionDirection,sid,1);
+
+    //}
+		return color;	 
+		
+   }
+   
+    void rayTrace(){
+    	 int sid;
+    	vec3 ray = normalize(vPosition - eye);
+        for (int i = 0; i < sphereCount; i++) {
+            float t = raySphere(eye, ray, spheres[i]);
+            if (t < minm) {
+                minm = t;
+                ob.surfacePoint = eye + minm * ray;//ok
+                ob.surfaceNormal = normalize(ob.surfacePoint - spheres[i].sCenter);//ok
+                ob.sufacePointToEye = normalize(eye - ob.surfacePoint);//ok
+                ob.surfacePointElevated = ob.surfacePoint + 0.05 * ob.surfaceNormal;
+                for(int i=0;i<lightCount;++i) 
+					        ob.sufacePointToLights[i]=normalize(lights[i].loc-ob.surfacePointElevated);      
+                ob.surfMat=spheres[i].sMat;
+                sid=i;
+            }
+        }
+        vec2 F=cellular(vec2(vPosition.x,vPosition.y)*10.);
+
+        //color.x+=temp.x;
+        //color.y+=temp.y;
+        //gl_FragColor = vec4(0.,0.,0.,1.);
+
+        gl_FragColor = vec4(vec3(F.x*F.x*sin(uTime),F.x*F.x,F.x*F.x+.05), 1.0);
+
+        if (minm < maxm) {
+          
+            gl_FragColor = vec4(shadeSphere(sid),1.);
+        }
+            
+
+    }
+	void main(void) {
+		//centre big sphere phong
+		//spheres[0].sCenter=vec3(0.,0.,-1.);
+    spheres[0].sCenter=vec3(uCursor.x,uCursor.y,-1.);
+		spheres[0].sRadius=.5;
+		spheres[0].sMat.ambient=vec3(0.1, 0.1, 0.1);
+		spheres[0].sMat.specular=vec3(0.2, 0.2, 0.2);
+		spheres[0].sMat.diffuse=vec3(0.6, 0.6, 0.6);
+		spheres[0].specpower=100.;
+		spheres[0].phong=true;
+		spheres[0].tex=true;
+		//Ice-Blue-Blinn
+		spheres[1].sCenter=vec3(0.,1.*cos(uTime),2.*sin(uTime)-.7);
+		spheres[1].sRadius=.1;
+		spheres[1].sMat.ambient=vec3(.1,.1,.1);
+		spheres[1].sMat.specular=vec3(0.3, 0.3, 0.3);
+		spheres[1].sMat.diffuse=vec3(0.7, 0.7, 0.7);
+		spheres[1].specpower=200.;
+		spheres[1].phong=false;
+		spheres[1].tex=true;
+		//Green-Yellow-Phong
+		spheres[2].sCenter=vec3(1.*cos(uTime),0.,1.*sin(uTime)-.7);
+		spheres[2].sRadius=.2;
+		spheres[2].sMat.ambient=vec3(.1, 0.1, 0.1);
+		spheres[2].sMat.specular=vec3(0.3, 0.3, 0.3);
+		spheres[2].sMat.diffuse=vec3(1., 0.5, 0.);
+		spheres[2].specpower=400.;
+		spheres[2].phong=true;
+		spheres[2].tex=true;
+		//transparent 
+		/*spheres[3].sCenter=vec3(uCursor.x,uCursor.y,2.8);
+    //spheres[3].sCenter=vec3(0.,1.*sin(uTime),2.*cos(uTime)-.7);
+		spheres[3].sRadius=.05;
+		spheres[3].sMat.ambient=vec3(0.5, 0.0, 0.0);
+		spheres[3].sMat.specular=vec3(0.3, 0.3, 0.3);
+		spheres[3].sMat.diffuse=vec3(.3,.0,.0);
+		spheres[3].specpower=20.;
+		spheres[3].phong=false;
+		spheres[3].tex=false;*/
+
+		lights[0].lColor=vec3(0.,.5,0.5);
+		lights[0].lDir=normalize(vec3(0.,0.,1.));
+		lights[0].loc=vec3(0.,0.,3.);
+		lights[1].lColor=vec3(.5,.5,0.);
+		lights[1].lDir=normalize(vec3(0., 1., 0.));
+		lights[1].loc=vec3(0., 3., 0.);
+
+		rayTrace();		
+		 
+    } 
+			 
+ 	
+	
+	
+</script>
+
+<script>
+start_gl('canvas1', document.getElementById('my_vertex_shader'  ).innerHTML,
+                    document.getElementById('my_fragment_shader').innerHTML);
+</script>
+
